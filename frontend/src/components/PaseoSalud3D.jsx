@@ -108,14 +108,19 @@ function Mascota({ especie, patas, cola }) {
   )
 }
 
+// Posición de la mascota dentro del grupo del paseo y altura de su etiqueta
+const POS_MASCOTA = [1.4, 0, -0.4]
+const ALTURA_ETIQUETA_MASCOTA = 1.4
+
 // El dueño y la mascota caminan juntos por el sendero, de la primera a la última consulta
-function Paseo({ especie, inicio, fin }) {
+function Paseo({ especie, inicio, fin, etiquetaMascota }) {
   const grupo = useRef()
   const piernas = useRef([])
   const patas = useRef([])
   const cola = useRef()
+  const v = useRef(new THREE.Vector3())
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera, size }) => {
     const t = clock.getElapsedTime()
     const largo = fin - inicio
     grupo.current.position.x = inicio + ((t * 1.2) % largo)
@@ -124,6 +129,16 @@ function Paseo({ especie, inicio, fin }) {
     piernas.current.forEach((p, i) => p && (p.rotation.z = i % 2 ? paso : -paso))
     patas.current.forEach((p, i) => p && (p.rotation.z = i % 2 ? paso : -paso))
     if (cola.current) cola.current.rotation.x = Math.sin(t * 12) * 0.5
+
+    // La etiqueta con el nombre sigue a la mascota mientras camina
+    const el = etiquetaMascota.current
+    if (el) {
+      const { x, y, z } = grupo.current.position
+      v.current.set(x + POS_MASCOTA[0], y + ALTURA_ETIQUETA_MASCOTA, z + POS_MASCOTA[2]).project(camera)
+      const px = (v.current.x * 0.5 + 0.5) * size.width
+      const py = (-v.current.y * 0.5 + 0.5) * size.height
+      el.style.transform = `translate(-50%, -100%) translate(${px}px, ${py}px)`
+    }
   })
 
   return (
@@ -131,7 +146,7 @@ function Paseo({ especie, inicio, fin }) {
       <group position={[0, 0, 0.6]}>
         <Duenio piernas={piernas} />
       </group>
-      <group position={[1.4, 0, -0.4]}>
+      <group position={POS_MASCOTA}>
         <Mascota especie={especie} patas={patas} cola={cola} />
       </group>
       {/* Correa: de la mano del dueño al collar de la mascota */}
@@ -166,6 +181,7 @@ export default function PaseoSalud3D({ consultas, mascota }) {
   const alturas = ordenadas.map((c) => 0.6 + ((Number(c.peso) || 0) / pesoMax) * 2.4)
   const puntos = ordenadas.map((c, i) => [i * ESPACIO, alturas[i] + 0.3, -1.6])
   const etiquetas = useRef([])
+  const etiquetaMascota = useRef(null)
   const [activo, setActivo] = useState(null)
 
   return (
@@ -191,7 +207,7 @@ export default function PaseoSalud3D({ consultas, mascota }) {
             <Poste key={c.id_consulta} consulta={c} x={i * ESPACIO} altura={alturas[i]} activo={activo === c.id_consulta} onHover={setActivo} />
           ))}
           <Proyector puntos={puntos} etiquetas={etiquetas} />
-          <Paseo especie={mascota?.especie} inicio={inicio - 1} fin={fin} />
+          <Paseo especie={mascota?.especie} inicio={inicio - 1} fin={fin} etiquetaMascota={etiquetaMascota} />
           <Arbol position={[inicio - 2, 0, -4]} />
           <Arbol position={[centro + ESPACIO / 2, 0, -5.5]} />
           <Arbol position={[fin + 1, 0, -4]} />
@@ -215,6 +231,14 @@ export default function PaseoSalud3D({ consultas, mascota }) {
             )}
           </div>
         ))}
+        {mascota?.nombre && (
+          <div
+            ref={etiquetaMascota}
+            className="absolute top-0 left-0 pointer-events-none bg-base-100 rounded-lg shadow px-2 py-1 text-xs whitespace-nowrap"
+          >
+            {mascota.nombre}
+          </div>
+        )}
       </div>
       <div className="flex gap-4 mt-2 text-sm">
         <span className="flex items-center gap-1"><span className="badge badge-success badge-xs"></span> Finalizada</span>
