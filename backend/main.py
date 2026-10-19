@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 import bcrypt
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import engine, get_db
+from slack import enviar_alerta
 
 # Crea las tablas en Supabase automáticamente si no existen
 models.Base.metadata.create_all(bind=engine)
@@ -99,7 +100,7 @@ def pet_history(id_mascota: int, db: Session = Depends(get_db)):
 
 # 4. Transacción de Consulta (equivalente al checkout de ventas)
 @app.post("/api/v1/consultations", response_model=schemas.ConsultationOut, status_code=status.HTTP_201_CREATED, tags=["Consultas"])
-def register_consultation(consulta_in: schemas.ConsultationCreate, db: Session = Depends(get_db)):
+def register_consultation(consulta_in: schemas.ConsultationCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         # Validar que la mascota exista
         pet = db.get(models.Pet, consulta_in.id_mascota)
@@ -127,6 +128,15 @@ def register_consultation(consulta_in: schemas.ConsultationCreate, db: Session =
         # Confirmar la transacción atómica
         db.commit()
         db.refresh(db_consulta)
+
+        # Alerta en Slack (se envía en segundo plano para no hacer esperar al usuario)
+        dueno = pet.propietario
+        background_tasks.add_task(enviar_alerta, (
+            f":stethoscope: *Nueva consulta #{db_consulta.id_consulta}*\n"
+            f"Mascota: {pet.nombre} ({pet.especie}) · Dueño: {dueno.nombres} {dueno.apellidos}\n"
+            f"Motivo: {db_consulta.motivo} · Peso: {db_consulta.peso or '-'} kg · Veterinario: {vet.nombres} {vet.apellidos}\n"
+            f"Tratamientos: {len(consulta_in.tratamientos)}"
+        ))
         return db_consulta
 
     except HTTPException:
@@ -159,7 +169,7 @@ def add_treatment(id_consulta: int, tratamiento: schemas.TreatmentCreate, db: Se
 
 
 @app.patch("/api/v1/consultations/{id_consulta}/finalizar", response_model=schemas.ConsultationOut, tags=["Consultas"])
-def finish_consultation(id_consulta: int, db: Session = Depends(get_db)):
+def finish_consultation(id_consulta: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     consulta = db.get(models.Consultation, id_consulta)
     if not consulta:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
@@ -168,4 +178,8 @@ def finish_consultation(id_consulta: int, db: Session = Depends(get_db)):
     consulta.estado = "FINALIZADA"
     db.commit()
     db.refresh(consulta)
+    background_tasks.add_task(enviar_alerta, (
+        f":white_check_mark: *Consulta #{consulta.id_consulta} finalizada*\n"
+        f"Mascota: {consulta.mascota.nombre} · Diagnóstico: {consulta.diagnostico or 'sin diagnóstico'} · Costo: {consulta.costo}"
+    ))
     return consulta
