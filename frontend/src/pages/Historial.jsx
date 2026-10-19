@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import api, { mensajeError } from '../api.js'
+
+// El gráfico 3D se carga solo cuando se necesita, para que la app abra rápido
+const PaseoSalud3D = lazy(() => import('../components/PaseoSalud3D.jsx'))
 
 export default function Historial() {
   const [mascotas, setMascotas] = useState([])
@@ -44,6 +47,12 @@ export default function Historial() {
       {error && <div className="alert alert-error text-sm">{error}</div>}
       {idMascota && consultas.length === 0 && <p className="text-center opacity-60">Esta mascota aún no tiene consultas</p>}
 
+      {consultas.length > 0 && (
+        <Suspense fallback={<div className="text-center"><span className="loading loading-spinner"></span></div>}>
+          <PaseoSalud3D consultas={consultas} mascota={mascota} />
+        </Suspense>
+      )}
+
       {consultas.map((c) => (
         <div key={c.id_consulta} className="card bg-base-100 shadow p-4">
           <div className="flex justify-between items-start gap-2">
@@ -74,3 +83,4 @@ export default function Historial() {
     </div>
   )
 }
+
